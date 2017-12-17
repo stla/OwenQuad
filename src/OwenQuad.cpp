@@ -280,38 +280,33 @@ NumericVector OwenQ1(int nu, double t, NumericVector delta, NumericVector R){
   }
 }
 
-// --- Owen cumulative function --------------------------------------------- //
+// --- Owen cumulative function 4 ------------------------------------------- //
 double* OwenCDF4_C(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2, size_t J){
   const double a1 = sign(t1)*sqrt(t1*t1/nu);
-  const double b1 = nu/(nu+t1*t1);
-  const double sb1 = sqrt(b1);
+  const double sb1 = sqrt(nu/(nu+t1*t1));
   const double a2 = sign(t2)*sqrt(t2*t2/nu);
-  const double b2 = nu/(nu+t2*t2);
-  const double sb2 = sqrt(b2);
-  double R[J];
+  const double sb2 = sqrt(nu/(nu+t2*t2));
   size_t j;
-  for(j=0; j<J; j++){
-    R[j] = sqrt(nu)*(delta1[j] - delta2[j])/(t1-t2);
-  }
   double* C = new double[J];
   for(j=0; j<J; j++){
+    double R = sqrt(nu)*(delta1[j] - delta2[j])/(t1-t2);
     double C1 = owent(delta2[j]*sb2, a2) - owent(delta1[j]*sb1, a1);
     double H21 = fabs(t1) < 1 ?
-    (t1-(t1-t2)/(1-delta2[j]/delta1[j]))/sqrt(nu) :
+      (t1-(t1-t2)/(1-delta2[j]/delta1[j]))/sqrt(nu) :
       t1/sqrt(nu)*(1-(1-t2/t1)/(1-delta2[j]/delta1[j]));
     double H22 = fabs(t2) < 1 ?
-    (t2-(t1-t2)/(delta1[j]/delta2[j]-1))/sqrt(nu) :
+      (t2-(t1-t2)/(delta1[j]/delta2[j]-1))/sqrt(nu) :
       t2/sqrt(nu)*(1-(t1/t2-1)/(delta1[j]/delta2[j]-1));
-    double C2 = owent(R[j], H22) - owent(R[j], H21);
+    double C2 = owent(R, H22) - owent(R, H21);
     //owent(R[j], a2-delta2[j]/R[j) - owent(R[j], a1-delta1[j]/R[j]);
     double H32 = fabs(t2) < 1 ?
-    t2/sqrt(nu)*(1- (delta1[j]/delta2[j]-1)/(t1/t2-1)) -
-    (delta1[j]/delta2[j]-1)/sqrt(nu)*nu/(t1-t2) :
+      t2/sqrt(nu)*(1- (delta1[j]/delta2[j]-1)/(t1/t2-1)) -
+        (delta1[j]/delta2[j]-1)/sqrt(nu)*nu/(t1-t2) :
       t2/sqrt(nu)*(1- (delta1[j]/delta2[j]-1)/(t1/t2-1)) -
         (delta1[j]/delta2[j]-1)/sqrt(nu)*nu/t2/(t1/t2-1);
     double H31 = fabs(t1) < 1 ?
-    t1/sqrt(nu)*(1- (1-delta2[j]/delta1[j])/(1-t2/t1)) -
-    (1-delta2[j]/delta1[j])/sqrt(nu)*nu/(t1-t2) :
+      t1/sqrt(nu)*(1- (1-delta2[j]/delta1[j])/(1-t2/t1)) -
+        (1-delta2[j]/delta1[j])/sqrt(nu)*nu/(t1-t2) :
       t1/sqrt(nu)*(1- (1-delta2[j]/delta1[j])/(1-t2/t1)) -
         (1-delta2[j]/delta1[j])/sqrt(nu)*nu/t1/(1-t2/t1);
     double C3 =
@@ -324,7 +319,7 @@ double* OwenCDF4_C(int nu, double t1, double t2, NumericVector delta1, NumericVe
 
 // [[Rcpp::export]]
 NumericVector OwenCDF4(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
-  if(t1 <= t2){
+  if(t1 <= t2){ // dans R
     return studentCDF(t2, nu, delta2) - studentCDF(t1, nu, delta1);
   }
   const int J = delta1.size();
@@ -466,3 +461,159 @@ NumericVector OwenCDF4(int nu, double t1, double t2, NumericVector delta1, Numer
   }
 }
 
+// --- Owen cumulative function 2 ------------------------------------------- //
+double* OwenCDF2_C(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2, size_t J){
+  const double sb1 = sqrt(nu/(nu+t1*t1));
+  const double sb2 = sqrt(nu/(nu+t2*t2));
+  size_t j;
+  double* C = new double[J];
+  for(j=0; j<J; j++){
+    double R = sqrt(nu)*(delta1[j] - delta2[j])/(t1-t2);
+    double H21 = fabs(t1) < 1 ?
+      (t1-(t1-t2)/(1-delta2[j]/delta1[j]))/sqrt(nu) :
+      t1/sqrt(nu)*(1-(1-t2/t1)/(1-delta2[j]/delta1[j]));
+    double H22 = fabs(t2) < 1 ?
+      (t2-(t1-t2)/(delta1[j]/delta2[j]-1))/sqrt(nu) :
+      t2/sqrt(nu)*(1-(t1/t2-1)/(delta1[j]/delta2[j]-1));
+    double C2 = owent(R, H22) - owent(R, H21);
+    double H32 = fabs(t2) < 1 ?
+      t2/sqrt(nu)*(1- (delta1[j]/delta2[j]-1)/(t1/t2-1)) -
+        (delta1[j]/delta2[j]-1)/sqrt(nu)*nu/(t1-t2) :
+      t2/sqrt(nu)*(1- (delta1[j]/delta2[j]-1)/(t1/t2-1)) -
+        (delta1[j]/delta2[j]-1)/sqrt(nu)*nu/t2/(t1/t2-1);
+    double H31 = fabs(t1) < 1 ?
+      t1/sqrt(nu)*(1- (1-delta2[j]/delta1[j])/(1-t2/t1)) -
+        (1-delta2[j]/delta1[j])/sqrt(nu)*nu/(t1-t2) :
+      t1/sqrt(nu)*(1- (1-delta2[j]/delta1[j])/(1-t2/t1)) -
+        (1-delta2[j]/delta1[j])/sqrt(nu)*nu/t1/(1-t2/t1);
+    double C3 =
+      owent(delta2[j]*sb2, H32) - owent(delta1[j]*sb1, H31);
+    C[j] = -2*(C2 + C3) + (delta1[j] >= 0) - (delta2[j] >= 0) +
+      pnorm64(-delta1[j]*sb1) - pnorm64(-delta2[j]*sb2);
+  }
+  return C;
+}
+
+// [[Rcpp::export]]
+NumericVector OwenCDF2(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
+  const int J = delta1.size();
+  NumericVector out(J);
+  if(nu == 1){
+    double* C = OwenCDF2_C(nu, t1, t2, delta1, delta2, J);
+    for(int j=0; j<J; j++){
+      out[j] = C[j];
+    }
+    delete[] C;
+    return out;
+  }
+  const mp::float128 t1t1(t1*t1);
+  const mp::float128 b1 = nu/(nu+t1t1);
+  const mp::float128 sb1 = mp::sqrt(b1);
+  const mp::float128 ab1 = mp::float128(sqrt(nu) * 1/(nu/t1+t1));
+  const mp::float128 asb1 = sign(t1) * mp::sqrt(1/(nu/t1t1+1));
+  const mp::float128 t2t2(t2*t2);
+  const mp::float128 b2 = nu/(nu+t2t2);
+  const mp::float128 sb2 = mp::sqrt(b2);
+  const mp::float128 ab2 = mp::float128(sqrt(nu) * 1/(nu/t2+t2));
+  const mp::float128 asb2 = sign(t2) * mp::sqrt(1/(nu/t2t2+1));
+  mp::float128 R[J];
+  mp::float128 dnormdsb1[J];
+  mp::float128 dnormdsb2[J];
+  mp::float128 Roversb1[J];
+  mp::float128 Roversb2[J];
+  mp::float128 dabminusRoversb1[J];
+  mp::float128 dabminusRoversb2[J];
+  mp::float128 dnormR[J];
+  mp::float128 RdnormR[J];
+  const int n = nu-1;
+  mp::float128 M1[n][J];
+  mp::float128 M2[n][J];
+  mp::float128 H[n][J];
+  int j;
+  for(j=0; j<J; j++){
+    R[j] = mp::float128(sqrt(nu)*(delta1[j]-delta2[j])/(t1-t2));
+    dnormdsb1[j] = dnorm128(delta1[j] * sb1);
+    dnormdsb2[j] = dnorm128(delta2[j] * sb2);
+    Roversb1[j] = fabs(t1) < 1 ?
+      R[j]/sb1 :
+      sign(t1)*(delta1[j]-delta2[j])*sqrt(nu/t1t1+1)/(1-t2/t1);
+    dabminusRoversb1[j] = delta1[j]*asb1 - Roversb1[j];
+    Roversb2[j] = fabs(t2) < 1 ?
+      R[j]/sb2 :
+      sign(t2)*(delta1[j]-delta2[j])*sqrt(nu/t2t2+1)/(t1/t2-1);
+    dabminusRoversb2[j] = delta2[j]*asb2 - Roversb2[j];
+    dnormR[j] = dnorm128(R[j]);
+    RdnormR[j] = R[j] * dnormR[j];
+    H[0][j] = -dnormR[j] *
+      (pnorm128(asb2*Roversb2[j]-delta2[j]) -
+        pnorm128(asb1*Roversb1[j]-delta1[j]));
+    M1[0][j] = asb1 * dnormdsb1[j] * pnorm128(dabminusRoversb1[j]);
+    M2[0][j] = asb2 * dnormdsb2[j] * pnorm128(dabminusRoversb2[j]);
+  }
+  if(nu >= 3){
+    for(j=0; j<J; j++){
+      H[1][j] = R[j] * H[0][j];
+      M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+                  dnorm128(dabminusRoversb1[j]);
+      M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
+                  dnorm128(dabminusRoversb2[j]);
+    }
+    if(nu >= 4){
+      mp::float128 A[n];
+      mp::float128 L1[n-2][J];
+      mp::float128 L2[n-2][J];
+      A[0] = 1;
+      A[1] = 1;
+      for(j=0; j<J; j++){
+        L1[0][j] = ab1 * RdnormR[j] * 0.5*dnorm128(asb1*Roversb1[j]-delta1[j]);
+        L2[0][j] = ab2 * RdnormR[j] * 0.5*dnorm128(asb2*Roversb2[j]-delta2[j]);
+      }
+      int k;
+      for(k=2; k<n; k++){
+        A[k] = 1.0/k/A[k-1];
+      }
+      if(nu >= 5){
+        for(k=1; k<n-2; k++){
+          for(j=0; j<J; j++){
+            L1[k][j] = A[k+2] * R[j] * L1[k-1][j];
+            L2[k][j] = A[k+2] * R[j] * L2[k-1][j];
+          }
+        }
+      }
+      for(k=2; k<n; k++){
+        for(j=0; j<J; j++){
+          H[k][j] = A[k] * R[j] * H[k-1][j];
+          M1[k][j] = (k-1.0)/k *
+            (A[k-2] * delta1[j] * ab1 * M1[k-1][j] + b1*M1[k-2][j]) + L1[k-2][j];
+          M2[k][j] = (k-1.0)/k *
+            (A[k-2] * delta2[j] * ab2 * M2[k-1][j] + b2*M2[k-2][j]) + L2[k-2][j];
+        }
+      }
+    }
+  }
+  std::vector<mp::float128> sum(J);
+  int i;
+  if(nu % 2 == 0){
+    for(i=0; i<n; i+=2){
+      for(j=0; j<J; j++){
+        sum[j] += M1[i][j] - M2[i][j] - H[i][j];
+      }
+    }
+    for(j=0; j<J; j++){
+      out[j] = root_two_pi*sum[j].convert_to<double>();
+    }
+    return out;
+  }else{
+    for(i=1; i<n; i+=2){
+      for(j=0; j<J; j++){
+        sum[j] += M1[i][j] - M2[i][j] - H[i][j];
+      }
+    }
+    double* C = OwenCDF2_C(nu, t1, t2, delta1, delta2, J);
+    for(j=0; j<J; j++){
+      out[j] = C[j] + 2*sum[j].convert_to<double>();
+    }
+    delete[] C;
+    return out;
+  }
+}
