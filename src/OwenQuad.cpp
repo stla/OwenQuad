@@ -23,9 +23,6 @@ double pnorm64(double q){
   if(std::isnan(q)){
     return nan("");
   }
-  // if(fabs(q) > DBL_MAX){ // inutile (à confirmer mais je suis sûr)
-  //   return q > 0 ? 1 : 0;
-  // }
   return m::erfc(-q * one_div_root_two)/2.0;
 }
 
@@ -34,9 +31,6 @@ mp::float128 dnorm128(mp::float128 x){
 }
 
 mp::float128 pnorm128(mp::float128 q){
-  if(fabs(q) > DBL_MAX){
-    return q>0 ? mp::float128(1) : mp::float128(0);
-  }
   return m::erfc(-q * one_div_root_two128)/2;
 }
 
@@ -68,22 +62,6 @@ NumericVector studentCDF(double q, size_t nu, NumericVector delta){
   const size_t J = delta.size();
   size_t j;
   NumericVector out(J);
-  // if(nu > INT_MAX){ // nu=Inf fait planter R; dans Haskell il n'y a pas de Inf integer
-  //   for(j=0; j<J; j++){
-  //     out[j] = pnorm64(q - delta[j]);
-  //   }
-  //   return out;
-  // }
-  // if(fabs(q)>DBL_MAX){ // faire dans R?
-  //   for(j=0; j<J; j++){
-  //     out[j] = fabs(delta[j]) > DBL_MAX ?
-  //       (std::signbit(q) == std::signbit(delta[j]) ?
-  //         nan("") :
-  //         (std::signbit(q) ? 0 : 1)) :
-  //     (std::signbit(q) ? 0 : 1);
-  //   }
-  //   return out;
-  // }
   if(nu==1){
     double* C = studentCDF_C(q, nu, delta, J);
     for(j=0; j<J; j++){
@@ -152,12 +130,13 @@ NumericVector studentCDF(double q, size_t nu, NumericVector delta){
 
 
 // ------- Owen first Q-function -------------------------------------------- //
-double* OwenQ1_C(int nu, double t, NumericVector delta, NumericVector R, size_t J){
+NumericVector OwenQ1_C(int nu, double t, NumericVector delta, NumericVector R){
   const double a = sign(t)*sqrt(t*t/nu);
   const double b = nu/(nu+t*t);
   const double sb = sqrt(b);
   const double ab = sqrt(nu) * 1/(nu/t+t);
-  double* C = new double[J];
+  size_t J = delta.size();
+  NumericVector C(J);
   size_t i;
   for(i=0; i<J; i++){
     double C1 = owent(delta[i]*sb, a);
@@ -170,17 +149,12 @@ double* OwenQ1_C(int nu, double t, NumericVector delta, NumericVector R, size_t 
 
 // [[Rcpp::export]]
 NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R){
+  if(nu == 1){
+    return OwenQ1_C(nu, t, delta, R);
+  }
   const size_t J = delta.size();
   size_t j;
   NumericVector out(J);
-  if(nu == 1){
-    double* C = OwenQ1_C(nu, t, delta, R, J);
-    for(j=0; j<J; j++){
-      out[j] = C[j];
-    }
-    delete[] C;
-    return out;
-  }
   const mp::float128 tt(t*t);
   const mp::float128 a = sign(t)*mp::sqrt(tt/nu);
   const mp::float128 b = nu/(nu+tt);
@@ -251,11 +225,10 @@ NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R){
         sum[j] += M[i][j]+H[i][j];
       }
     }
-    double* C = OwenQ1_C(nu, t, delta, R, J);
+    NumericVector C = OwenQ1_C(nu, t, delta, R);
     for(j=0; j<J; j++){
       out[j] = C[j] + 2*sum[j].convert_to<double>();
     }
-    delete[] C;
     return out;
   }
 }
@@ -279,7 +252,7 @@ NumericVector OwenQ2_C(int nu, double t, NumericVector delta, NumericVector R){
 }
 
 // [[Rcpp::export]]
-NumericVector OwenQ2(int nu, double t, NumericVector delta, NumericVector R){
+NumericVector OwenQ2(size_t nu, double t, NumericVector delta, NumericVector R){
   if(nu == 1){
     return OwenQ2_C(nu, t, delta, R);
   }
@@ -294,7 +267,7 @@ NumericVector OwenQ2(int nu, double t, NumericVector delta, NumericVector R){
   mp::float128 dnormdsb[J];
   mp::float128 dabminusRoversb[J];
   mp::float128 dnormR[J];
-  const int n = nu-1;
+  const size_t n = nu-1;
   mp::float128 H[n][J];
   mp::float128 M[n][J];
   size_t j;
@@ -319,7 +292,7 @@ NumericVector OwenQ2(int nu, double t, NumericVector delta, NumericVector R){
       for(j=0; j<J; j++){
         L[0][j] = ab * R[j] * dnormR[j] * dnorm128(a*R[j]-delta[j])/2;
       }
-      int k;
+      size_t k;
       for(k=2; k<n; k++){
         A[k] = 1.0/k/A[k-1];
       }
@@ -339,7 +312,7 @@ NumericVector OwenQ2(int nu, double t, NumericVector delta, NumericVector R){
     }
   }
   std::vector<mp::float128> sum(J);
-  int i;
+  size_t i;
   if(nu % 2 == 0){
     for(i=0; i<n; i+=2){
       for(j=0; j<J; j++){
@@ -365,7 +338,8 @@ NumericVector OwenQ2(int nu, double t, NumericVector delta, NumericVector R){
 }
 
 // --- Owen cumulative function 4 ------------------------------------------- //
-NumericVector OwenCDF4_C(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
+NumericVector OwenCDF4_C(int nu, double t1, double t2,
+                                 NumericVector delta1, NumericVector delta2){
   const double a1 = sign(t1)*sqrt(t1*t1/nu);
   const double sb1 = sqrt(nu/(nu+t1*t1));
   const double a2 = sign(t2)*sqrt(t2*t2/nu);
@@ -416,12 +390,12 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1, Nu
   const mp::float128 t1t1(t1*t1);
   const mp::float128 b1 = nu/(nu+t1t1);
   const mp::float128 sb1 = mp::sqrt(b1);
-  const mp::float128 ab1 = mp::float128(sqrt(nu) * 1/(nu/t1+t1));
+  const mp::float128 ab1 = mp::float128(sqrt(nu)/(nu/t1+t1));
   const mp::float128 asb1 = sign(t1) * mp::sqrt(1/(nu/t1t1+1));
   const mp::float128 t2t2(t2*t2);
   const mp::float128 b2 = nu/(nu+t2t2);
   const mp::float128 sb2 = mp::sqrt(b2);
-  const mp::float128 ab2 = mp::float128(sqrt(nu) * 1/(nu/t2+t2));
+  const mp::float128 ab2 = mp::float128(sqrt(nu)/(nu/t2+t2));
   const mp::float128 asb2 = sign(t2) * mp::sqrt(1/(nu/t2t2+1));
   mp::float128 R[J];
   mp::float128 dnormdsb1[J];
@@ -441,11 +415,11 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1, Nu
     dnormdsb1[j] = dnorm128(delta1[j] * sb1);
     dnormdsb2[j] = dnorm128(delta2[j] * sb2);
     Roversb1[j] = fabs(t1) < 1 ?
-    R[j]/sb1 :
+      R[j]/sb1 :
       sign(t1)*(delta1[j]-delta2[j])*sqrt(nu/t1t1+1)/(1-t2/t1);
     dabminusRoversb1[j] = delta1[j]*asb1 - Roversb1[j];
     Roversb2[j] = fabs(t2) < 1 ?
-    R[j]/sb2 :
+      R[j]/sb2 :
       sign(t2)*(delta1[j]-delta2[j])*sqrt(nu/t2t2+1)/(t1/t2-1);
     dabminusRoversb2[j] = delta2[j]*asb2 - Roversb2[j];
     dnormR[j] = dnorm128(R[j]);
@@ -460,13 +434,11 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1, Nu
   }
   if(nu >= 3){
     for(j=0; j<J; j++){
-      H[1][j] = R[j] > DBL_MAX ? 0 : R[j] * H[0][j]; // pas besoin car je vais traiter delta1=Inf
-      M1[1][j] = delta1[j] > DBL_MAX ? // idem, pas besoin
-      0 :
-        delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
-          (dnorm128(delta1[j]*asb1) - dnorm128(dabminusRoversb1[j]));
+      H[1][j] = R[j] * H[0][j];
+      M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+                  (dnorm128(delta1[j]*asb1) - dnorm128(dabminusRoversb1[j]));
       M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
-        (dnorm128(delta2[j]*asb2) - dnorm128(dabminusRoversb2[j]));
+                  (dnorm128(delta2[j]*asb2) - dnorm128(dabminusRoversb2[j]));
     }
     if(nu >= 4){
       mp::float128 A[n];
@@ -529,11 +501,13 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1, Nu
 }
 
 // --- Owen cumulative function 2 ------------------------------------------- //
-double* OwenCDF2_C(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2, size_t J){
+NumericVector OwenCDF2_C
+    (int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
   const double sb1 = sqrt(nu/(nu+t1*t1));
   const double sb2 = sqrt(nu/(nu+t2*t2));
+  const size_t J = delta1.size();
   size_t j;
-  double* C = new double[J];
+  NumericVector C(J);
   for(j=0; j<J; j++){
     double R = sqrt(nu)*(delta1[j] - delta2[j])/(t1-t2);
     double H21 = fabs(t1) < 1 ?
@@ -562,17 +536,14 @@ double* OwenCDF2_C(int nu, double t1, double t2, NumericVector delta1, NumericVe
 }
 
 // [[Rcpp::export]]
-NumericVector OwenCDF2(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
-  const int J = delta1.size();
-  NumericVector out(J);
+NumericVector OwenCDF2
+    (size_t nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
   if(nu == 1){
-    double* C = OwenCDF2_C(nu, t1, t2, delta1, delta2, J);
-    for(int j=0; j<J; j++){
-      out[j] = C[j];
-    }
-    delete[] C;
-    return out;
+    return OwenCDF2_C(nu, t1, t2, delta1, delta2);
   }
+  const size_t J = delta1.size();
+  size_t j;
+  NumericVector out(J);
   const mp::float128 t1t1(t1*t1);
   const mp::float128 b1 = nu/(nu+t1t1);
   const mp::float128 sb1 = mp::sqrt(b1);
@@ -592,11 +563,10 @@ NumericVector OwenCDF2(int nu, double t1, double t2, NumericVector delta1, Numer
   mp::float128 dabminusRoversb2[J];
   mp::float128 dnormR[J];
   mp::float128 RdnormR[J];
-  const int n = nu-1;
+  const size_t n = nu-1;
   mp::float128 M1[n][J];
   mp::float128 M2[n][J];
   mp::float128 H[n][J];
-  int j;
   for(j=0; j<J; j++){
     R[j] = mp::float128(sqrt(nu)*(delta1[j]-delta2[j])/(t1-t2));
     dnormdsb1[j] = dnorm128(delta1[j] * sb1);
@@ -635,7 +605,7 @@ NumericVector OwenCDF2(int nu, double t1, double t2, NumericVector delta1, Numer
         L1[0][j] = ab1 * RdnormR[j] * 0.5*dnorm128(asb1*Roversb1[j]-delta1[j]);
         L2[0][j] = ab2 * RdnormR[j] * 0.5*dnorm128(asb2*Roversb2[j]-delta2[j]);
       }
-      int k;
+      size_t k;
       for(k=2; k<n; k++){
         A[k] = 1.0/k/A[k-1];
       }
@@ -659,7 +629,7 @@ NumericVector OwenCDF2(int nu, double t1, double t2, NumericVector delta1, Numer
     }
   }
   std::vector<mp::float128> sum(J);
-  int i;
+  size_t i;
   if(nu % 2 == 0){
     for(i=0; i<n; i+=2){
       for(j=0; j<J; j++){
@@ -676,17 +646,17 @@ NumericVector OwenCDF2(int nu, double t1, double t2, NumericVector delta1, Numer
         sum[j] += M1[i][j] - M2[i][j] - H[i][j];
       }
     }
-    double* C = OwenCDF2_C(nu, t1, t2, delta1, delta2, J);
+    NumericVector C = OwenCDF2_C(nu, t1, t2, delta1, delta2);
     for(j=0; j<J; j++){
       out[j] = C[j] + 2*sum[j].convert_to<double>();
     }
-    delete[] C;
     return out;
   }
 }
 
 // --- Owen cumulative function 1 ------------------------------------------- //
-NumericVector OwenCDF1_C(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
+NumericVector OwenCDF1_C
+    (int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
   const double a1 = sign(t1)*sqrt(t1*t1/nu);
   const double sb1 = sqrt(nu/(nu+t1*t1));
   const double sb2 = sqrt(nu/(nu+t2*t2));
@@ -722,7 +692,8 @@ NumericVector OwenCDF1_C(int nu, double t1, double t2, NumericVector delta1, Num
 }
 
 // [[Rcpp::export]]
-NumericVector OwenCDF1(size_t nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
+NumericVector OwenCDF1
+    (size_t nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
   if(nu == 1){
     return OwenCDF1_C(nu, t1, t2, delta1, delta2);
   }
@@ -835,7 +806,8 @@ NumericVector OwenCDF1(size_t nu, double t1, double t2, NumericVector delta1, Nu
 }
 
 // --- Owen cumulative function 3 ------------------------------------------- //
-NumericVector OwenCDF3_C(int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
+NumericVector OwenCDF3_C
+    (int nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
   const double sb1 = sqrt(nu/(nu+t1*t1));
   const double a2 = sign(t2)*sqrt(t2*t2/nu);
   const double sb2 = sqrt(nu/(nu+t2*t2));
@@ -871,7 +843,8 @@ NumericVector OwenCDF3_C(int nu, double t1, double t2, NumericVector delta1, Num
 }
 
 // [[Rcpp::export]]
-NumericVector OwenCDF3(size_t nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
+NumericVector OwenCDF3
+    (size_t nu, double t1, double t2, NumericVector delta1, NumericVector delta2){
   if(nu == 1){
     return OwenCDF3_C(nu, t1, t2, delta1, delta2);
   }
