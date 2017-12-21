@@ -244,24 +244,26 @@ NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R, 
   const mp::float128 asb = sign(t)/mp::sqrt(nu/tt+1);
   mp::float128 dnormdsb[J];
   mp::float128 dabminusRoversb[J];
+  mp::float128 dab[J];
   const size_t n = nu-1;
   mp::float128 H[n][J]; mp::float128 M[n][J];
   mp::float128 Lfactor[J];
   for(j=0; j<J; j++){
     dnormdsb[j] = dnorm128(delta[j] * sb);
-    dabminusRoversb[j] = (delta[j]*ab - R[j])/sb;
+    dab[j] = delta[j]*ab;
+    dabminusRoversb[j] = (dab[j] - R[j])/sb;
     Lfactor[j] = ab * dnorm128(a*R[j]-delta[j]);
     H[0][j] = dnorm128(R[j]);
-    M[0][j] = asb * dnormdsb[j] * (pnorm128(delta[j]*asb) - pnorm128(dabminusRoversb[j]));
+    M[0][j] = asb * dnormdsb[j] *
+                (pnorm128(delta[j]*asb) - pnorm128(dabminusRoversb[j]));
   }
   if(nu >= 3){
     for(j=0; j<J; j++){
       H[1][j] = xdnormx(R[j]);
-      M[1][j] = delta[j]*ab*M[0][j] + ab * dnormdsb[j] *
+      M[1][j] = dab[j]*M[0][j] + ab * dnormdsb[j] *
                   (dnorm128(delta[j]*asb) - dnorm128(dabminusRoversb[j]));
     }
     if(nu >= 4){
-      size_t k;
       if(algo == 1){
         mp::float128 A[n]; A[0] = 1.0Q; A[1] = 1.0Q;
         // mp::float128 L[n-2][J];
@@ -290,14 +292,14 @@ NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R, 
         // for(j=0; j<J; j++){
         //   L[j] = H[0][j];
         // }
-        for(k=2; k<n; k++){
+        for(size_t k=2; k<n; k++){
           A[k] = 1.0Q / (k*A[k-1]);
           mp::float128 r = mp::float128(k-1) / mp::float128(k);
           for(j=0; j<J; j++){
             mp::float128 AkRj = A[k]*R[j];
             L[j] *= AkRj;
             H[k][j] = AkRj * H[k-1][j];
-            M[k][j] = r * (A[k-2] * delta[j] * ab * M[k-1][j] + b*M[k-2][j]) -
+            M[k][j] = r * (A[k-2] * dab[j] * M[k-1][j] + b*M[k-2][j]) -
                         Lfactor[j]*L[j];
           }
         }
@@ -310,31 +312,36 @@ NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R, 
           logR[j] = mp::log(Rj);
         }
         mp::float128 A = 1.0Q;
-        mp::float128 logfact = 0.0Q;
-        mp::float128 p = 0.0Q;
-        mp::float128 h = 0.0Q;
-        mp::float128 ldf;
-        for(k=0; k<n-2; k++){
+//        mp::float128 logfact = 0.0Q;
+        mp::float128 u = 0.0Q; mp::float128 v = 0.0Q; mp::float128 ldf;
+        for(size_t k=0; k<n-2; k++){
           //A[k+1] = 1.0Q / (mp::float128(k+1)*A[k]); // un de trop
+          mp::float128 kp1 = mp::float128(k+1);
+          mp::float128 kp2 = mp::float128(k+2);
           if(k % 2 == 0){
             //logfact = m::lgamma(0.5Q*mp::float128(k+4));
-            logfact += mp::log(mp::float128(k/2+1));
-            h += log_two128;
-            ldf = h + logfact; // pas de gain
+            //
+            // logfact += mp::log(mp::float128(k/2+1));
+            // h += log_two128;
+            // ldf = h + logfact; // pas de gain
+            //
+            u += mp::log(kp2);
+            ldf = u;
             // ldf = mp::float128(k+2)*half_log_two128 +
             //         logfact;
           }else{
             // ldf = m::lgamma(mp::float128(k+3)) -
             //         mp::float128(k+1)*half_log_two128 - logfact;
-            p += mp::log(mp::float128((k+1)*(k+2)));
-            ldf = p - ldf;
+            // p += mp::log(mp::float128((k+1)*(k+2)));
+            // ldf = p - ldf;
+            v += mp::log(kp2);
+            ldf = v;
           }
-          mp::float128 kp1 = mp::float128(k+1);
-          mp::float128 r = kp1 / mp::float128(k+2);
+          mp::float128 r = kp1 / kp2;
           for(j=0; j<J; j++){
             mp::float128 K = mp::exp(-ldf + kp1*logR[j] + W[j]);
             H[k+2][j] = K*R[j];
-            M[k+2][j] = r * (A*delta[j]*ab*M[k+1][j] + b*M[k][j]) -
+            M[k+2][j] = r * (A*dab[j]*M[k+1][j] + b*M[k][j]) -
                           K*Lfactor[j];
           }
           A = 1.0Q / (kp1*A);
@@ -346,11 +353,10 @@ NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R, 
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q;
       for(size_t i=0; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M[i][j];
+        sumH += H[i][j]; sumM += M[i][j];
       }
-      mp::float128 out128 = root_two_pi128*(sumM - pnorm128(a*R[j]-delta[j])*sumH) +
-                pnorm128(-delta[j]);
+      mp::float128 out128 = pnorm128(-delta[j]) +
+                        root_two_pi128*(sumM - pnorm128(a*R[j]-delta[j])*sumH);
       out[j] = out128.convert_to<double>();
     }
     return out;
@@ -359,8 +365,7 @@ NumericVector OwenQ1(size_t nu, double t, NumericVector delta, NumericVector R, 
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q;
       for(size_t i=1; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M[i][j];
+        sumH += H[i][j]; sumM += M[i][j];
       }
       mp::float128 out128 = 2.0Q * (sumM - pnorm128(a*R[j]-delta[j])*sumH);
       out[j] = C[j] + out128.convert_to<double>();
@@ -543,13 +548,15 @@ NumericVector OwenQ2
   const mp::float128 asb = sign(t)/mp::sqrt(nu/tt+1);
   mp::float128 dnormdsb[J];
   mp::float128 dabminusRoversb[J];
+  mp::float128 dab[J];
   const size_t n = nu-1;
   mp::float128 H[n][J]; mp::float128 M[n][J];
   mp::float128 Lfactor[J];
   size_t j;
   for(j=0; j<J; j++){
     dnormdsb[j] = dnorm128(delta[j] * sb);
-    dabminusRoversb[j] = (delta[j]*ab - R[j])/sb;
+    dab[j] = delta[j]*ab;
+    dabminusRoversb[j] = (dab[j] - R[j])/sb;
     H[0][j] = dnorm128(R[j]);
     M[0][j] = asb * dnormdsb[j] * pnorm128(dabminusRoversb[j]);
     Lfactor[j] = ab * dnorm128(a*R[j]-delta[j]);
@@ -557,61 +564,47 @@ NumericVector OwenQ2
   if(nu >= 3){
     for(j=0; j<J; j++){
       H[1][j] = xdnormx(R[j]);
-      M[1][j] = delta[j]*ab*M[0][j] + ab * dnormdsb[j] *
-                  dnorm128(dabminusRoversb[j]);
+      M[1][j] = dab[j]*M[0][j] + ab*dnormdsb[j]*dnorm128(dabminusRoversb[j]);
     }
     if(nu >= 4){
-      size_t k;
       if(algo == 1){
         mp::float128 A[n]; A[0] = 1.0Q; A[1] = 1.0Q;
-        mp::float128 L[n-2][J];
-        for(j=0; j<J; j++){
-          L[0][j] = 0.5Q * H[1][j];
-        }
-        for(k=2; k<n; k++){
+        mp::float128 L[J] = H[0];
+        for(size_t k=2; k<n; k++){
           A[k] = 1.0Q / (k*A[k-1]);
-        }
-        if(nu >= 5){
-          for(k=1; k<n-2; k++){
-            for(j=0; j<J; j++){
-              L[k][j] = A[k+2] * R[j] * L[k-1][j];
-            }
-          }
-        }
-        for(k=2; k<n; k++){
           mp::float128 r = mp::float128(k-1) / mp::float128(k);
           for(j=0; j<J; j++){
-            H[k][j] = A[k] * R[j] * H[k-1][j];
-            M[k][j] = r * (A[k-2] * delta[j] * ab * M[k-1][j] + b*M[k-2][j]) +
-                        Lfactor[j]*L[k-2][j];
+            mp::float128 AkRj = A[k]*R[j];
+            L[j] *= AkRj;
+            H[k][j] = AkRj * H[k-1][j];
+            M[k][j] = r * (A[k-2]*dab[j]*M[k-1][j] + b*M[k-2][j]) +
+                        Lfactor[j]*L[j];
           }
         }
       }else{ // algo 2
-        mp::float128 A[n-1]; A[0] = 1.0Q;
         mp::float128 W[J]; mp::float128 logR[J];
         for(j=0; j<J; j++){
           mp::float128 Rj = mp::float128(R[j]);
           W[j] = -(0.5Q * Rj*Rj + log_root_two_pi128);
           logR[j] = mp::log(Rj);
         }
-        for(k=0; k<n-2; k++){
-          A[k+1] = 1.0Q / (mp::float128(k+1)*A[k]); // un de trop
-          mp::float128 ldf;
+        mp::float128 A = 1.0Q;
+        mp::float128 u = 0.0Q; mp::float128 v = 0.0Q; mp::float128 ldf;
+        for(size_t k=0; k<n-2; k++){
+          mp::float128 kp1 = mp::float128(k+1);
+          mp::float128 kp2 = mp::float128(k+2);
           if(k % 2 == 0){
-            ldf = mp::float128(k+2)*half_log_two128 +
-                    m::lgamma(0.5Q*mp::float128(k+4));
+            u += mp::log(kp2); ldf = u;
           }else{
-            ldf = m::lgamma(mp::float128(k+3)) -
-                    mp::float128(k+1)*half_log_two128 -
-                    m::lgamma(0.5Q*mp::float128(k+3));
+            v += mp::log(kp2); ldf = v;
           }
-          mp::float128 r = mp::float128(k+1) / mp::float128(k+2);
+          mp::float128 r = kp1 / kp2;
           for(j=0; j<J; j++){
-            mp::float128 K = mp::exp(-ldf + mp::float128(k+1)*logR[j] + W[j]);
+            mp::float128 K = mp::exp(-ldf + kp1*logR[j] + W[j]);
             H[k+2][j] = K*R[j];
-            M[k+2][j] = r * (A[k] * delta[j] * ab * M[k+1][j] + b*M[k][j]) +
-                          K*Lfactor[j];
+            M[k+2][j] = r * (A*dab[j]*M[k+1][j] + b*M[k][j]) + K*Lfactor[j];
           }
+          A = 1.0Q / (kp1*A);
         }
       }
     }
@@ -620,8 +613,7 @@ NumericVector OwenQ2
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q;
       for(size_t i=0; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M[i][j];
+        sumH += H[i][j]; sumM += M[i][j];
       }
       mp::float128 out128 = root_two_pi128*(sumM + pnorm128(a*R[j]-delta[j])*sumH);
       out[j] = out128.convert_to<double>();
@@ -632,8 +624,7 @@ NumericVector OwenQ2
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q;
       for(size_t i=1; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M[i][j];
+        sumH += H[i][j]; sumM += M[i][j];
       }
       mp::float128 out128 = 2.0Q * (sumM + pnorm128(a*R[j]-delta[j])*sumH);
       out[j] = C[j] + out128.convert_to<double>();
@@ -730,71 +721,57 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1,
     Lfactor2[j] = ab2 * dnorm128(aRminusdelta2[j]);
   }
   if(nu >= 3){
+    mp::float128 dab1[J]; mp::float128 dab2[J];
     for(j=0; j<J; j++){
+      dab1[j] = delta1[j]*ab1; dab2[j] = delta2[j]*ab2;
       H[1][j] = xdnormx(R[j]);
-      M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+      M1[1][j] = dab1[j]*M1[0][j] + ab1 * dnormdsb1[j] *
                   (dnorm128(delta1[j]*asb1) - dnorm128(dabminusRoversb1[j]));
-      M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
+      M2[1][j] = dab2[j]*M2[0][j] + ab2 * dnormdsb2[j] *
                   (dnorm128(delta2[j]*asb2) - dnorm128(dabminusRoversb2[j]));
     }
     if(nu >= 4){
-      size_t k;
       if(algo == 1){
         mp::float128 A[n]; A[0] = 1.0Q; A[1] = 1.0Q;
-        mp::float128 L[n-2][J];
-        for(j=0; j<J; j++){
-          L[0][j] = 0.5Q * H[1][j];
-        }
-        for(k=2; k<n; k++){
+        mp::float128 L[J] = H[0];
+        for(size_t k=2; k<n; k++){
           A[k] = 1.0Q / (k*A[k-1]);
-        }
-        if(nu >= 5){
-          for(k=1; k<n-2; k++){
-            for(j=0; j<J; j++){
-              L[k][j] = A[k+2] * R[j] * L[k-1][j];
-            }
-          }
-        }
-        for(k=2; k<n; k++){
           mp::float128 r = mp::float128(k-1) / mp::float128(k);
           for(j=0; j<J; j++){
-            H[k][j] = A[k] * R[j] * H[k-1][j];
-            M1[k][j] = r *
-              (A[k-2] * delta1[j] * ab1 * M1[k-1][j] + b1*M1[k-2][j]) -
-                Lfactor1[j]*L[k-2][j];
-            M2[k][j] = r *
-              (A[k-2] * delta2[j] * ab2 * M2[k-1][j] + b2*M2[k-2][j]) -
-                Lfactor2[j]*L[k-2][j];
+            mp::float128 AkRj = A[k]*R[j];
+            L[j] *= AkRj;
+            H[k][j] = AkRj * H[k-1][j];
+            M1[k][j] = r * (A[k-2] * dab1[j]*M1[k-1][j] + b1*M1[k-2][j]) -
+                        Lfactor1[j]*L[j];
+            M2[k][j] = r * (A[k-2] * dab2[j]*M2[k-1][j] + b2*M2[k-2][j]) -
+                        Lfactor2[j]*L[j];
           }
         }
       }else{ // algo2
-        mp::float128 A[n-1]; A[0] = 1.0Q;
         mp::float128 W[J]; mp::float128 logR[J];
         for(j=0; j<J; j++){
           mp::float128 Rj = mp::float128(R[j]);
           W[j] = -(0.5Q * Rj*Rj + log_root_two_pi128);
           logR[j] = mp::log(Rj);
         }
-        for(k=0; k<n-2; k++){
-          A[k+1] = 1.0Q / (mp::float128(k+1)*A[k]); // un de trop
-          mp::float128 ldf;
+        mp::float128 A = 1.0Q;
+        mp::float128 u = 0.0Q; mp::float128 v = 0.0Q; mp::float128 ldf;
+        for(size_t k=0; k<n-2; k++){
+          mp::float128 kp1 = mp::float128(k+1);
+          mp::float128 kp2 = mp::float128(k+2);
           if(k % 2 == 0){
-            ldf = mp::float128(k+2)*half_log_two128 +
-                    m::lgamma(0.5Q*mp::float128(k+4));
+            u += mp::log(kp2); ldf = u;
           }else{
-            ldf = m::lgamma(mp::float128(k+3)) -
-                    mp::float128(k+1)*half_log_two128 -
-                    m::lgamma(0.5Q*mp::float128(k+3));
+            v += mp::log(kp2); ldf = v;
           }
-          mp::float128 r = mp::float128(k+1) / mp::float128(k+2);
+          mp::float128 r = kp1 / kp2;
           for(j=0; j<J; j++){
-            mp::float128 K = mp::exp(-ldf + mp::float128(k+1)*logR[j] + W[j]);
+            mp::float128 K = mp::exp(-ldf + kp1*logR[j] + W[j]);
             H[k+2][j] = K*R[j];
-            M1[k+2][j] = r * (A[k]*delta1[j]*ab1*M1[k+1][j] + b1*M1[k][j]) -
-                          K*Lfactor1[j];
-            M2[k+2][j] = r * (A[k]*delta2[j]*ab2*M2[k+1][j] + b2*M2[k][j]) -
-                          K*Lfactor2[j];
+            M1[k+2][j] = r*(A*dab1[j]*M1[k+1][j] + b1*M1[k][j]) - K*Lfactor1[j];
+            M2[k+2][j] = r*(A*dab2[j]*M2[k+1][j] + b2*M2[k][j]) - K*Lfactor2[j];
           }
+          A = 1.0Q / (kp1*A);
         }
       }
     }
@@ -803,12 +780,11 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1,
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q; mp::float128 out128;
       for(size_t i=0; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M2[i][j] - M1[i][j];
+        sumH += H[i][j]; sumM += M2[i][j] - M1[i][j];
       }
       out128 = root_two_pi128*(sumM +
-                (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j]))*sumH) +
-                pnorm128(-delta2[j]) - pnorm128(-delta1[j]);
+              (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j]))*sumH) +
+              pnorm128(-delta2[j]) - pnorm128(-delta1[j]);
       out[j] = out128.convert_to<double>();
     }
     return out;
@@ -817,8 +793,7 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1,
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q; mp::float128 out128;
       for(size_t i=1; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M2[i][j] - M1[i][j];
+        sumH += H[i][j]; sumM += M2[i][j] - M1[i][j];
       }
       out128 = 2.0Q * (sumM +
                 (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j]))*sumH);
@@ -883,9 +858,9 @@ NumericVector OwenCDF4(size_t nu, double t1, double t2, NumericVector delta1,
 //   if(nu >= 3){
 //     for(j=0; j<J; j++){
 //       H[1][j] = -xndnorm(R[j],1);
-//       M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+//       M1[1][j] = dab1[j]*M1[0][j] + ab1 * dnormdsb1[j] *
 //         (dnorm128(delta1[j]*asb1) - dnorm128(dabminusRoversb1[j]));
-//       M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
+//       M2[1][j] = dab2[j]*M2[0][j] + ab2 * dnormdsb2[j] *
 //         (dnorm128(delta2[j]*asb2) - dnorm128(dabminusRoversb2[j]));
 //     }
 //     if(nu >= 4){
@@ -1037,71 +1012,57 @@ NumericVector OwenCDF2
     Lfactor2[j] = ab2 * dnorm128(aRminusdelta2[j]);
   }
   if(nu >= 3){
+    mp::float128 dab1[J]; mp::float128 dab2[J];
     for(j=0; j<J; j++){
+      dab1[j] = delta1[j]*ab1; dab2[j] = delta2[j]*ab2;
       H[1][j] = xdnormx(R[j]);
-      M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+      M1[1][j] = dab1[j]*M1[0][j] + ab1 * dnormdsb1[j] *
                   dnorm128(dabminusRoversb1[j]);
-      M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
+      M2[1][j] = dab2[j]*M2[0][j] + ab2 * dnormdsb2[j] *
                   dnorm128(dabminusRoversb2[j]);
     }
     if(nu >= 4){
-      size_t k;
       if(algo == 1){
         mp::float128 A[n]; A[0] = 1.0Q; A[1] = 1.0Q;
-        mp::float128 L[n-2][J];
-        for(j=0; j<J; j++){
-          L[0][j] = 0.5Q * H[1][j];
-        }
-        for(k=2; k<n; k++){
+        mp::float128 L[J] = H[0];
+        for(size_t k=2; k<n; k++){
           A[k] = 1.0Q / (k*A[k-1]);
-        }
-        if(nu >= 5){
-          for(k=1; k<n-2; k++){
-            for(j=0; j<J; j++){
-              L[k][j] = A[k+2] * R[j] * L[k-1][j];
-            }
-          }
-        }
-        for(k=2; k<n; k++){
           mp::float128 r = mp::float128(k-1) / mp::float128(k);
           for(j=0; j<J; j++){
-            H[k][j] = A[k] * R[j] * H[k-1][j];
-            M1[k][j] = r *
-              (A[k-2] * delta1[j] * ab1 * M1[k-1][j] + b1*M1[k-2][j]) +
-                Lfactor1[j]*L[k-2][j];
-            M2[k][j] = r *
-              (A[k-2] * delta2[j] * ab2 * M2[k-1][j] + b2*M2[k-2][j]) +
-                Lfactor2[j]*L[k-2][j];
+            mp::float128 AkRj = A[k]*R[j];
+            L[j] *= AkRj;
+            H[k][j] = AkRj * H[k-1][j];
+            M1[k][j] = r * (A[k-2]*dab1[j]*M1[k-1][j] + b1*M1[k-2][j]) +
+                        Lfactor1[j]*L[j];
+            M2[k][j] = r * (A[k-2]*dab2[j]*M2[k-1][j] + b2*M2[k-2][j]) +
+                        Lfactor2[j]*L[j];
           }
         }
-      }else{ // algo 2
-        mp::float128 A[n-1]; A[0] = 1.0Q;
+      }else{ // algo2
         mp::float128 W[J]; mp::float128 logR[J];
         for(j=0; j<J; j++){
           mp::float128 Rj = mp::float128(R[j]);
           W[j] = -(0.5Q * Rj*Rj + log_root_two_pi128);
           logR[j] = mp::log(Rj);
         }
+        mp::float128 A = 1.0Q;
+        mp::float128 u = 0.0Q; mp::float128 v = 0.0Q; mp::float128 ldf;
         for(size_t k=0; k<n-2; k++){
-          A[k+1] = 1.0Q / (mp::float128(k+1)*A[k]); // un de trop
-          mp::float128 ldf;
+          mp::float128 kp1 = mp::float128(k+1);
+          mp::float128 kp2 = mp::float128(k+2);
           if(k % 2 == 0){
-            ldf = mp::float128(k+2)*half_log_two128 +
-                    m::lgamma(0.5Q*mp::float128(k+4));
+            u += mp::log(kp2); ldf = u;
           }else{
-            ldf = m::lgamma(mp::float128(k+3)) -
-                    mp::float128(k+1)*half_log_two128 -
-                    m::lgamma(0.5Q*mp::float128(k+3));
+            v += mp::log(kp2); ldf = v;
           }
-          mp::float128 r = mp::float128(k+1) / mp::float128(k+2);
+          mp::float128 r = kp1 / kp2;
           for(j=0; j<J; j++){
-            mp::float128 K = mp::exp(-ldf + mp::float128(k+1)*logR[j] + W[j]);
+            mp::float128 K = mp::exp(-ldf + kp1*logR[j] + W[j]);
             H[k+2][j] = K*R[j];
-            M1[k+2][j] = r * (A[k]*delta1[j]*ab1*M1[k+1][j] + b1*M1[k][j]) +
-                          K*Lfactor1[j];
-            M2[k+2][j] = r * (A[k]*delta2[j]*ab2*M2[k+1][j] + b2*M2[k][j]) +
-                          K*Lfactor2[j];
+            M1[k+2][j] = r*(A*dab1[j]*M1[k+1][j] + b1*M1[k][j]) + K*Lfactor1[j];
+            M2[k+2][j] = r*(A*dab2[j]*M2[k+1][j] + b2*M2[k][j]) + K*Lfactor2[j];
           }
+          A = 1.0Q / (kp1*A);
         }
       }
     }
@@ -1110,8 +1071,7 @@ NumericVector OwenCDF2
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q; mp::float128 out128;
       for(size_t i=0; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M1[i][j] - M2[i][j];
+        sumH += H[i][j]; sumM += M1[i][j] - M2[i][j];
       }
       out128 = root_two_pi128*(sumM - sumH *
                 (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j])));
@@ -1123,8 +1083,7 @@ NumericVector OwenCDF2
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q; mp::float128 out128;
       for(size_t i=1; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += M1[i][j] - M2[i][j];
+        sumH += H[i][j]; sumM += M1[i][j] - M2[i][j];
       }
       out128 = 2.0Q * (sumM - sumH *
                 (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j])));
@@ -1214,68 +1173,57 @@ NumericVector OwenCDF1
     Lfactor2[j] = ab2 * dnorm128(asb2*Roversb2-delta2[j]);
   }
   if(nu >= 3){
+    mp::float128 dab1[J]; mp::float128 dab2[J];
     for(j=0; j<J; j++){
-      M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+      dab1[j] = delta1[j]*ab1; dab2[j] = delta2[j]*ab2;
+      M1[1][j] = dab1[j]*M1[0][j] + ab1 * dnormdsb1[j] *
           (dnorm128(delta1[j]*asb1) - dnorm128(dabminusRoversb1[j]));
-      M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
+      M2[1][j] = dab2[j]*M2[0][j] + ab2 * dnormdsb2[j] *
                   dnorm128(dabminusRoversb2[j]);
     }
     if(nu >= 4){
-      size_t k;
       if(algo == 1){
         mp::float128 A[n]; A[0] = 1.0Q; A[1] = 1.0Q;
-        mp::float128 L[n-2][J];
+        mp::float128 L[J];
         for(j=0; j<J; j++){
-          L[0][j] = 0.5*xdnormx(R[j]);
+          L[j] = dnorm128(R[j]);
         }
-        for(k=2; k<n; k++){
+        for(size_t k=2; k<n; k++){
           A[k] = 1.0Q / (k*A[k-1]);
-        }
-        if(nu >= 5){
-          for(k=1; k<n-2; k++){
-            for(j=0; j<J; j++){
-              L[k][j] = A[k+2] * R[j] * L[k-1][j];
-            }
-          }
-        }
-        for(k=2; k<n; k++){
           mp::float128 r = mp::float128(k-1) / mp::float128(k);
           for(j=0; j<J; j++){
-            M1[k][j] = r *
-              (A[k-2] * delta1[j] * ab1 * M1[k-1][j] + b1*M1[k-2][j]) -
-                Lfactor1[j]*L[k-2][j];
-            M2[k][j] = r *
-              (A[k-2] * delta2[j] * ab2 * M2[k-1][j] + b2*M2[k-2][j]) +
-                Lfactor2[j]*L[k-2][j];
+            mp::float128 AkRj = A[k]*R[j];
+            L[j] *= AkRj;
+            M1[k][j] = r * (A[k-2]*dab1[j]*M1[k-1][j] + b1*M1[k-2][j]) -
+                        Lfactor1[j]*L[j];
+            M2[k][j] = r * (A[k-2]*dab2[j]*M2[k-1][j] + b2*M2[k-2][j]) +
+                        Lfactor2[j]*L[j];
           }
         }
-      }else{ // algo 2
-        mp::float128 A[n-1]; A[0] = 1.0Q;
+      }else{ // algo2
         mp::float128 W[J]; mp::float128 logR[J];
         for(j=0; j<J; j++){
           mp::float128 Rj = mp::float128(R[j]);
           W[j] = -(0.5Q * Rj*Rj + log_root_two_pi128);
           logR[j] = mp::log(Rj);
         }
-        for(k=0; k<n-2; k++){
-          A[k+1] = 1.0Q / (mp::float128(k+1)*A[k]); // un de trop
-          mp::float128 ldf;
+        mp::float128 A = 1.0Q;
+        mp::float128 u = 0.0Q; mp::float128 v = 0.0Q; mp::float128 ldf;
+        for(size_t k=0; k<n-2; k++){
+          mp::float128 kp1 = mp::float128(k+1);
+          mp::float128 kp2 = mp::float128(k+2);
           if(k % 2 == 0){
-            ldf = mp::float128(k+2)*half_log_two128 +
-                    m::lgamma(0.5Q*mp::float128(k+4));
+            u += mp::log(kp2); ldf = u;
           }else{
-            ldf = m::lgamma(mp::float128(k+3)) -
-                    mp::float128(k+1)*half_log_two128 -
-                    m::lgamma(0.5Q*mp::float128(k+3));
+            v += mp::log(kp2); ldf = v;
           }
-          mp::float128 r = mp::float128(k+1) / mp::float128(k+2);
+          mp::float128 r = kp1 / kp2;
           for(j=0; j<J; j++){
-            mp::float128 K = mp::exp(-ldf + mp::float128(k+1)*logR[j] + W[j]);
-            M1[k+2][j] = r * (A[k]*delta1[j]*ab1*M1[k+1][j] + b1*M1[k][j]) -
-                          K*Lfactor1[j];
-            M2[k+2][j] = r * (A[k]*delta2[j]*ab2*M2[k+1][j] + b2*M2[k][j]) +
-                          K*Lfactor2[j];
+            mp::float128 K = mp::exp(-ldf + kp1*logR[j] + W[j]);
+            M1[k+2][j] = r*(A*dab1[j]*M1[k+1][j] + b1*M1[k][j]) - K*Lfactor1[j];
+            M2[k+2][j] = r*(A*dab2[j]*M2[k+1][j] + b2*M2[k][j]) + K*Lfactor2[j];
           }
+          A = 1.0Q / (kp1*A);
         }
       }
     }
@@ -1387,70 +1335,57 @@ NumericVector OwenCDF3
     Lfactor2[j] = ab2 * dnorm128(aRminusdelta2[j]);
   }
   if(nu >= 3){
+    mp::float128 dab1[J]; mp::float128 dab2[J];
     for(j=0; j<J; j++){
+      dab1[j] = delta1[j]*ab1; dab2[j] = delta2[j]*ab2;
       H[1][j] = xdnormx(R[j]);
-      M1[1][j] = delta1[j]*ab1*M1[0][j] + ab1 * dnormdsb1[j] *
+      M1[1][j] = dab1[j]*M1[0][j] + ab1 * dnormdsb1[j] *
                   dnorm128(dabminusRoversb1[j]);
-      M2[1][j] = delta2[j]*ab2*M2[0][j] + ab2 * dnormdsb2[j] *
+      M2[1][j] = dab2[j]*M2[0][j] + ab2 * dnormdsb2[j] *
                   (dnorm128(delta2[j]*asb2) - dnorm128(dabminusRoversb2[j]));
     }
     if(nu >= 4){
-      size_t k;
       if(algo == 1){
         mp::float128 A[n]; A[0] = 1.0Q; A[1] = 1.0Q;
-        mp::float128 L[n-2][J];
-        for(j=0; j<J; j++){
-          L[0][j] = 0.5Q * H[1][j];
-        }
-        for(k=2; k<n; k++){
+        mp::float128 L[J] = H[0];
+        for(size_t k=2; k<n; k++){
           A[k] = 1.0Q / (k*A[k-1]);
-        }
-        if(nu >= 5){
-          for(k=1; k<n-2; k++){
-            for(j=0; j<J; j++){
-              L[k][j] = A[k+2] * R[j] * L[k-1][j];
-            }
-          }
-        }
-        for(k=2; k<n; k++){
           mp::float128 r = mp::float128(k-1) / mp::float128(k);
           for(j=0; j<J; j++){
-            H[k][j] = A[k] * R[j] * H[k-1][j];
-            M1[k][j] = r *
-              (A[k-2] * delta1[j] * ab1 * M1[k-1][j] + b1*M1[k-2][j]) +
-                Lfactor1[j]*L[k-2][j];
-            M2[k][j] = r *
-              (A[k-2] * delta2[j] * ab2 * M2[k-1][j] + b2*M2[k-2][j]) -
-                Lfactor2[j]*L[k-2][j];
+            mp::float128 AkRj = A[k]*R[j];
+            L[j] *= AkRj;
+            H[k][j] = AkRj * H[k-1][j];
+            M1[k][j] = r * (A[k-2]*dab1[j]*M1[k-1][j] + b1*M1[k-2][j]) +
+                        Lfactor1[j]*L[j];
+            M2[k][j] = r * (A[k-2]*dab2[j]*M2[k-1][j] + b2*M2[k-2][j]) -
+                        Lfactor2[j]*L[j];
           }
         }
-      }else{
-        mp::float128 A[n-1]; A[0] = 1.0Q;
+      }else{ // algo2
         mp::float128 W[J]; mp::float128 logR[J];
         for(j=0; j<J; j++){
           mp::float128 Rj = mp::float128(R[j]);
           W[j] = -(0.5Q * Rj*Rj + log_root_two_pi128);
           logR[j] = mp::log(Rj);
         }
-        for(k=0; k<n-2; k++){
-          A[k+1] = 1.0Q / (mp::float128(k+1)*A[k]); // un de trop
-          mp::float128 ldf;
+        mp::float128 A = 1.0Q;
+        mp::float128 u = 0.0Q; mp::float128 v = 0.0Q; mp::float128 ldf;
+        for(size_t k=0; k<n-2; k++){
+          mp::float128 kp1 = mp::float128(k+1);
+          mp::float128 kp2 = mp::float128(k+2);
           if(k % 2 == 0){
-            ldf = mp::float128(k+2)*half_log_two128 +
-                    m::lgamma(0.5Q*mp::float128(k+4));
+            u += mp::log(kp2); ldf = u;
           }else{
-            ldf = m::lgamma(mp::float128(k+3)) -
-                    mp::float128(k+1)*half_log_two128 -
-                    m::lgamma(0.5Q*mp::float128(k+3));
+            v += mp::log(kp2); ldf = v;
           }
-          mp::float128 r = mp::float128(k+1) / mp::float128(k+2);
+          mp::float128 r = kp1 / kp2;
           for(j=0; j<J; j++){
-            mp::float128 K = mp::exp(-ldf + mp::float128(k+1)*logR[j] + W[j]);
-            M1[k+2][j] = r * (A[k]*delta1[j]*ab1*M1[k+1][j] + b1*M1[k][j]) +
-                          K*Lfactor1[j];
-            M2[k+2][j] = r * (A[k]*delta2[j]*ab2*M2[k+1][j] + b2*M2[k][j]) -
-                          K*Lfactor2[j];
+            mp::float128 K = mp::exp(-ldf + kp1*logR[j] + W[j]);
+            H[k+2][j] = K*R[j];
+            M1[k+2][j] = r*(A*dab1[j]*M1[k+1][j] + b1*M1[k][j]) + K*Lfactor1[j];
+            M2[k+2][j] = r*(A*dab2[j]*M2[k+1][j] + b2*M2[k][j]) - K*Lfactor2[j];
           }
+          A = 1.0Q / (kp1*A);
         }
       }
     }
@@ -1459,8 +1394,7 @@ NumericVector OwenCDF3
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q; mp::float128 out128;
       for(size_t i=0; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += -M1[i][j] - M2[i][j];
+        sumH += H[i][j]; sumM += -M1[i][j] - M2[i][j];
       }
       out128 = root_two_pi128*(sumM + sumH *
                 (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j]))) +
@@ -1473,8 +1407,7 @@ NumericVector OwenCDF3
     for(j=0; j<J; j++){
       mp::float128 sumH = 0.0Q; mp::float128 sumM = 0.0Q; mp::float128 out128;
       for(size_t i=1; i<n; i+=2){
-        sumH += H[i][j];
-        sumM += -M1[i][j] - M2[i][j];
+        sumH += H[i][j]; sumM += -M1[i][j] - M2[i][j];
       }
       out128 = 2.0Q * (sumM + sumH *
                 (pnorm128(aRminusdelta1[j]) - pnorm128(aRminusdelta2[j])));
